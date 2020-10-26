@@ -6,6 +6,7 @@ const http = require("http");
 // Utils
 const { rooms, exitRoom, joinRoom, createRoom } = require("./utils/rooms");
 const { userConnected, connectedUsers, initializeChoices, makeMove, choices, moves } = require("./utils/users");
+const { join } = require("path");
 
 const app = express();
 const server = http.createServer(app);
@@ -19,24 +20,23 @@ io.on("connection", socket => {
             let error = "This room id already exists";
             socket.emit("display-error", error);
         } else {
-            createRoom(roomId, socket.id, socket.client.id);
+            createRoom(roomId, socket.client.id);
             userConnected(socket.client.id);
             socket.emit("room-created", roomId);
             socket.emit("player-1-connected");
+            socket.join(roomId);
         }
     })
 
     socket.on("join-room", roomId => {
         if (rooms[roomId]) {
-            let socketRoomId = rooms[roomId][2];
-
             joinRoom(roomId, socket.client.id);
             userConnected(socket.client.id);
-            socket.join(socketRoomId);
+            socket.join(roomId);
 
             socket.emit("room-joined", roomId);
             socket.emit("player-2-connected");
-            socket.broadcast.to(socketRoomId).emit('player-2-connected');
+            socket.broadcast.to(roomId).emit('player-2-connected');
             initializeChoices(roomId);
         } else {
             let error = "Room does not exist";
@@ -46,12 +46,10 @@ io.on("connection", socket => {
 
     socket.on("join-random", () => {
         let roomId = "";
-        let socketRoomId = "";
 
         for (let id in rooms) {
-            if (rooms[id][1] === false && rooms[id][0] === true) {
+            if (rooms[id][1] === "" && rooms[id][0] !== "") {
                 roomId = id;
-                socketRoomId = rooms[id][2];
                 break;
             }
         }
@@ -62,11 +60,12 @@ io.on("connection", socket => {
         } else {
             joinRoom(roomId, socket.client.id);
             userConnected(socket.client.id);
-            socket.join(socketRoomId);
+            socket.join(roomId);
+            console.log(roomId)
 
             socket.emit("room-joined", roomId);
             socket.emit("player-2-connected");
-            socket.broadcast.to(socketRoomId).emit('player-2-connected');
+            socket.broadcast.to(roomId).emit('player-2-connected');
             initializeChoices(roomId);
         }
     });
@@ -81,7 +80,7 @@ io.on("connection", socket => {
             if (playerOneChoice === playerTwoChoice) {
                 let message = "Both of you choosed " + myChoice + ". So it's draw.";
                 choices[roomId] = ["", ""];
-                io.to(rooms[roomId][2]).emit("draw", message);
+                io.to(roomId).emit("draw", message);
             } else if (moves[playerOneChoice] === playerTwoChoice) {
                 let enemyChoice = "";
 
@@ -92,7 +91,7 @@ io.on("connection", socket => {
                 }
 
                 choices[roomId] = ["", ""];
-                io.to(rooms[roomId][2]).emit("player-1-win", { myChoice, enemyChoice });
+                io.to(roomId).emit("player-1-win", { myChoice, enemyChoice });
             } else {
                 let enemyChoice = "";
 
@@ -103,38 +102,36 @@ io.on("connection", socket => {
                 }
 
                 choices[roomId] = ["", ""];
-                io.to(rooms[roomId][2]).emit("player-2-win", { myChoice, enemyChoice });
+                io.to(roomId).emit("player-2-win", { myChoice, enemyChoice });
             }
         }
     })
 
     socket.on("disconnect", () => {
         if (connectedUsers[socket.client.id]) {
-            let idOfRoom;
             let player;
-            let socketRoomId
+            let roomId;
 
-            for (let roomId in rooms) {
-                if (rooms[roomId][3] === socket.client.id ||
-                    rooms[roomId][4] === socket.client.id) {
-                    if (rooms[roomId][3] === socket.client.id) {
+            for (let id in rooms) {
+                if (rooms[id][0] === socket.client.id ||
+                    rooms[id][1] === socket.client.id) {
+                    if (rooms[id][0] === socket.client.id) {
                         player = 1;
                     } else {
                         player = 2;
                     }
 
-                    idOfRoom = roomId;
-                    socketRoomId = rooms[roomId][2];
+                    roomId = id;
                     break;
                 }
             }
 
-            exitRoom(idOfRoom, player);
+            exitRoom(roomId, player);
 
             if (player === 1) {
-                io.to(socketRoomId).emit("player-1-disconnected");
+                io.to(roomId).emit("player-1-disconnected");
             } else {
-                io.to(socketRoomId).emit("player-2-disconnected");
+                io.to(roomId).emit("player-2-disconnected");
             }
         } else {
             console.log("User is not connected to any room");
